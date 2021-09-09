@@ -17,9 +17,16 @@
 package com.example.android.trackmysleepquality.sleeptracker
 
 import android.app.Application
+import android.provider.SyncStateContract.Helpers.insert
+import android.provider.SyncStateContract.Helpers.update
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.MutableLiveData
+import androidx.lifecycle.Transformations
 import com.example.android.trackmysleepquality.database.SleepDatabaseDao
+import com.example.android.trackmysleepquality.database.SleepNight
+import com.example.android.trackmysleepquality.formatNights
+import kotlinx.coroutines.launch
 
 /**
  * ViewModel for SleepTrackerFragment.
@@ -27,5 +34,66 @@ import com.example.android.trackmysleepquality.database.SleepDatabaseDao
 class SleepTrackerViewModel(
         val database: SleepDatabaseDao,
         application: Application) : AndroidViewModel(application) {
+
+        private var tonight = MutableLiveData<SleepNight?>()
+        private val nights = database.getAllNights()
+
+        val nightsString = Transformations.map(nights) { nights ->
+                formatNights(nights, application.resources)
+        }
+
+        init {
+                initializeTonight()
+        }
+
+        private fun initializeTonight() {
+                viewModelScope.launch {
+                        tonight.value = getTonightFromDatabase()
+                }
+        }
+
+        private suspend fun getTonightFromDatabase(): SleepNight? {
+                var night = database.getTonight()
+                if(night?.startTimeInMillisseconds != night?.endTimeInMillisseconds) {
+                        night = null
+                }
+                return night
+        }
+
+        fun onStartTracking() {
+                viewModelScope.launch {
+                        val newNight = SleepNight()
+                        insert(newNight)
+                        tonight.value = getTonightFromDatabase()
+                }
+        }
+
+        private suspend fun insert(newNight: SleepNight) {
+                database.insert(newNight)
+        }
+
+        fun onStopTracking() {
+                viewModelScope.launch {
+                        val oldNight = tonight.value ?: return@launch
+                        oldNight.endTimeInMillisseconds = System.currentTimeMillis()
+                        update(oldNight)
+                }
+        }
+
+        private suspend fun update(oldNight: SleepNight) {
+                database.update(oldNight)
+        }
+
+        fun onClear() {
+                viewModelScope.launch {
+                        clear()
+                        tonight.value = null
+                }
+        }
+
+        private suspend fun clear() {
+                database.clear()
+        }
+
 }
 
